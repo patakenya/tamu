@@ -1,5 +1,4 @@
-
--- Create database
+-- Creating database with UTF-8 encoding for multilingual support
 CREATE DATABASE IF NOT EXISTS mlm_platform
     CHARACTER SET utf8mb4
     COLLATE utf8mb4_unicode_ci;
@@ -18,7 +17,7 @@ CREATE TABLE tiers (
     INDEX idx_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Users table: Stores user account information
+-- Users table: Stores user account information with available_balance
 CREATE TABLE users (
     id INT AUTO_INCREMENT PRIMARY KEY,
     full_name VARCHAR(255) NOT NULL,
@@ -37,6 +36,47 @@ CREATE TABLE users (
     FOREIGN KEY (referred_by) REFERENCES users(id) ON DELETE SET NULL,
     INDEX idx_phone_number (phone_number),
     INDEX idx_referral_code (referral_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Admins table: Stores admin account information
+CREATE TABLE admins (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    email VARCHAR(100) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Books table: Stores digital book details (supports both user and admin authors)
+CREATE TABLE books (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT DEFAULT NULL,
+    admin_id INT DEFAULT NULL,
+    title VARCHAR(100) NOT NULL,
+    description TEXT,
+    price DECIMAL(10,2) NOT NULL,
+    commission DECIMAL(10,2) NOT NULL,
+    file_path VARCHAR(255) NOT NULL,
+    status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE,
+    CONSTRAINT chk_author CHECK ((user_id IS NOT NULL AND admin_id IS NULL) OR (user_id IS NULL AND admin_id IS NOT NULL)),
+    INDEX idx_title (title),
+    INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Affiliate Products table: Stores affiliate products with featured image
+CREATE TABLE affiliate_products (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    description TEXT,
+    price DECIMAL(10,2) NOT NULL,
+    original_url VARCHAR(255) NOT NULL,
+    commission DECIMAL(10,2) NOT NULL,
+    featured_image VARCHAR(255) DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Pending Payments table: Tracks tier upgrade payments
@@ -69,49 +109,28 @@ CREATE TABLE referrals (
 -- Transactions table: Records payments, withdrawals, book sales, and commissions
 CREATE TABLE transactions (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
-    type ENUM('payment', 'withdrawal', 'book_sale', 'book_commission', 'article_payment', 'affiliate_commission', 'tier_payment') NOT NULL,
-    amount DECIMAL(10,2) NOT NULL,
-    status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    INDEX idx_user_id (user_id),
-    INDEX idx_type_status (type, status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Admins table: Stores admin account information
-CREATE TABLE admins (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    username VARCHAR(50) NOT NULL UNIQUE,
-    email VARCHAR(100) NOT NULL UNIQUE,
-    password VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Books table: Stores digital book details (supports both user and admin authors)
-CREATE TABLE books (
-    id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT DEFAULT NULL,
-    admin_id INT DEFAULT NULL,
-    title VARCHAR(100) NOT NULL,
-    description TEXT,
-    price DECIMAL(10,2) NOT NULL,
-    commission DECIMAL(10,2) NOT NULL,
-    file_path VARCHAR(255) NOT NULL,
-    status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
+    type ENUM('payment', 'withdrawal', 'book_sale', 'book_commission', 'article_payment', 'affiliate_commission', 'tier_payment', 'purchase') NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    status ENUM('pending', 'approved', 'rejected', 'completed') DEFAULT 'pending',
+    transaction_code VARCHAR(20) DEFAULT NULL,
+    book_id INT DEFAULT NULL,
+    product_id INT DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE,
-    CONSTRAINT chk_author CHECK ((user_id IS NOT NULL AND admin_id IS NULL) OR (user_id IS NULL AND admin_id IS NOT NULL)),
-    INDEX idx_title (title),
-    INDEX idx_status (status)
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE SET NULL,
+    FOREIGN KEY (product_id) REFERENCES affiliate_products(id) ON DELETE SET NULL,
+    INDEX idx_user_id (user_id),
+    INDEX idx_type_status (type, status),
+    INDEX idx_book_id (book_id),
+    INDEX idx_product_id (product_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Book Sales table: Tracks book purchases and commissions
 CREATE TABLE book_sales (
     id INT AUTO_INCREMENT PRIMARY KEY,
     book_id INT NOT NULL,
-    buyer_id INT NOT NULL,
+    buyer_id INT DEFAULT NULL,
     promoter_id INT DEFAULT NULL,
     sale_amount DECIMAL(10,2) NOT NULL,
     site_commission DECIMAL(10,2) NOT NULL,
@@ -119,7 +138,7 @@ CREATE TABLE book_sales (
     seller_amount DECIMAL(10,2) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE,
-    FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE SET NULL,
     FOREIGN KEY (promoter_id) REFERENCES users(id) ON DELETE SET NULL,
     INDEX idx_book_id (book_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -147,19 +166,6 @@ CREATE TABLE comments (
     FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_article_id (article_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Affiliate Products table: Stores affiliate products with featured image
-CREATE TABLE affiliate_products (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    description TEXT,
-    price DECIMAL(10,2) NOT NULL,
-    original_url VARCHAR(255) NOT NULL,
-    commission DECIMAL(10,2) NOT NULL,
-    featured_image VARCHAR(255) DEFAULT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Affiliate Links table: Tracks user-generated affiliate links
@@ -213,7 +219,7 @@ INSERT INTO referrals (referrer_id, referred_id, level) VALUES
 (1, 3, 1),
 (2, 4, 1);
 
--- Insert test books (mix of user and admin authored)
+-- Insert test books
 INSERT INTO books (user_id, admin_id, title, description, price, commission, file_path, status) VALUES
 (1, NULL, 'Mastering Wealth', 'A guide to financial freedom', 500.00, 50.00, '/uploads/mastering_wealth.pdf', 'approved'),
 (1, NULL, 'Success Mindset', 'Unlock your potential', 750.00, 75.00, '/uploads/success_mindset.pdf', 'pending'),
@@ -221,13 +227,14 @@ INSERT INTO books (user_id, admin_id, title, description, price, commission, fil
 (NULL, 1, 'Financial Freedom', 'Path to wealth', 800.00, 80.00, '/uploads/financial_freedom.pdf', 'pending');
 
 -- Insert test transactions
-INSERT INTO transactions (user_id, type, amount, status) VALUES
-(1, 'book_sale', 500.00, 'approved'),
-(1, 'book_commission', 50.00, 'approved'),
-(2, 'article_payment', 300.00, 'approved'),
-(3, 'withdrawal', 500.00, 'pending'),
-(1, 'tier_payment', 1000.00, 'approved'),
-(1, 'payment', 500.00, 'pending');
+INSERT INTO transactions (user_id, type, amount, status, transaction_code, book_id, product_id) VALUES
+(1, 'book_sale', 500.00, 'approved', NULL, 1, NULL),
+(1, 'book_commission', 50.00, 'approved', NULL, 1, NULL),
+(2, 'article_payment', 300.00, 'approved', NULL, NULL, NULL),
+(3, 'withdrawal', 500.00, 'pending', NULL, NULL, NULL),
+(1, 'tier_payment', 1000.00, 'approved', NULL, NULL, NULL),
+(1, 'payment', 500.00, 'pending', 'QJ7X9P2K3L', NULL, NULL),
+(NULL, 'purchase', 500.00, 'pending', 'TEST1234', 1, NULL);
 
 -- Insert test book sales
 INSERT INTO book_sales (book_id, buyer_id, promoter_id, sale_amount, site_commission, promoter_commission, seller_amount) VALUES
@@ -237,15 +244,17 @@ INSERT INTO book_sales (book_id, buyer_id, promoter_id, sale_amount, site_commis
 
 -- Insert test articles
 INSERT INTO articles (user_id, title, content, featured_image, status) VALUES
-(2, 'How to Save Money', 'Content about saving...', '/uploads/save_money.jpg', 'approved'),
-(2, 'Investing Basics', 'Content about investing...', NULL, 'pending');
+(2, 'How to Save Money', 'Content about saving money and financial planning...', '/uploads/save_money.jpg', 'approved'),
+(2, 'Investing Basics', 'Content about the basics of investing...', NULL, 'pending'),
+(1, 'The Rise of Digital Currencies', 'Exploring the growth of cryptocurrencies...', NULL, 'pending'),
+(3, 'Blockchain Basics', 'Introduction to blockchain technology...', NULL, 'pending');
 
 -- Insert test comments
 INSERT INTO comments (article_id, user_id, content) VALUES
 (1, 3, 'Great tips on saving money!'),
 (1, 4, 'Really helpful article.');
 
--- Insert test affiliate products with featured images
+-- Insert test affiliate products
 INSERT INTO affiliate_products (name, description, price, original_url, commission, featured_image) VALUES
 ('Jumia Smartphone', 'Latest Android smartphone with 64GB storage.', 15000.00, 'https://jumia.co.ke/smartphone', 100.00, '/uploads/smartphone.jpg'),
 ('Online Course: Digital Marketing', 'Learn digital marketing from top experts.', 5000.00, 'https://example.com/course', 100.00, '/uploads/course.jpg'),
